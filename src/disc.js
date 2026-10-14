@@ -104,26 +104,39 @@ const labelFunctions = /* glsl */`
   uniform float uLabelRotation;
   uniform float uLabelBlur;
   uniform float uSilver;
+  uniform float uLowQuality;
   vec2 labelCoordinate(vec2 uv, float angle) {
     vec2 p = (uv - .5) / max(.1, uLabelScale);
     float a = uLabelRotation + angle;
     p = mat2(cos(a), -sin(a), sin(a), cos(a)) * p;
     return p / uLabelAspect + .5 + uLabelOffset;
   }
+  vec4 labelTexel(sampler2D image, vec2 uv, float angle) {
+    vec2 coordinate = labelCoordinate(uv, angle);
+    vec4 sampleColor = texture2D(image, clamp(coordinate, 0., 1.));
+    // PNG transparency means unprinted paper, including the scan's margins.
+    sampleColor.rgb = mix(vec3(1.), sampleColor.rgb, sampleColor.a);
+    sampleColor.a = 1.;
+    float inside = step(0., coordinate.x) * step(coordinate.x, 1.) *
+                   step(0., coordinate.y) * step(coordinate.y, 1.);
+    return mix(vec4(1.), sampleColor, inside);
+  }
   vec4 labelSample(sampler2D image, vec2 uv) {
-    vec4 result = vec4(0.);
-    for (int i = -3; i <= 3; i++) {
-      vec2 coordinate = labelCoordinate(uv, float(i) * uLabelBlur / 3.);
-      vec4 sampleColor = texture2D(image, clamp(coordinate, 0., 1.));
-      // The supplied scan has transparent margins/hole. Treat them as unprinted
-      // paper, not the black RGB values stored under the transparent pixels.
-      sampleColor.rgb = mix(vec3(1.), sampleColor.rgb, sampleColor.a);
-      sampleColor.a = 1.;
-      float inside = step(0., coordinate.x) * step(coordinate.x, 1.) *
-                     step(0., coordinate.y) * step(coordinate.y, 1.);
-      result += mix(vec4(1.), sampleColor, inside);
+    vec4 result = vec4(1.);
+    // Resting and reduced-motion discs need exactly one texture fetch.
+    if (uLabelBlur < .0001) {
+      result = labelTexel(image, uv, 0.);
+    } else if (uLowQuality > .5) {
+      result = (labelTexel(image, uv, -uLabelBlur) + labelTexel(image, uv, 0.) +
+                labelTexel(image, uv, uLabelBlur)) / 3.;
+    } else {
+      result = vec4(0.);
+      for (int i = -3; i <= 3; i++) {
+        result += labelTexel(image, uv, float(i) * uLabelBlur / 3.);
+      }
+      result /= 7.;
     }
-    return result / 7.;
+    return result;
   }
 `;
 
@@ -189,31 +202,40 @@ const diffractionFragment = /* glsl */`
     vec3 H = L + V;
     float alignment = dot(t, H) / max(uSigma, .025);
     float envelope = exp(-alignment * alignment);
+    if (envelope < .002) return vec3(0.);
     float projected = abs(dot(g, H));
     float facing = .45 + .55 * abs(dot(vNormalWorld, L));
     vec3 color = vec3(0.);
     for (int order = 1; order <= 3; order++) {
+      if (uLowQuality > .5 && order == 3) break;
       float m = float(order);
       float wavelength = 1600. * projected / m;
-      float visible = smoothstep(380., 400., wavelength) *
-                     (1. - smoothstep(710., 750., wavelength));
-      color += spectrum(wavelength) * visible / (m * m);
+      if (wavelength >= 380. && wavelength <= 750.) {
+        float visible = smoothstep(380., 400., wavelength) *
+                       (1. - smoothstep(710., 750., wavelength));
+        color += spectrum(wavelength) * visible / (m * m);
+      }
     }
     return color * envelope * facing;
   }
   void main() {
+    if (uLabelFace > .5 && uSilver < .5) discard;
     vec3 V = normalize(cameraPosition - vWorld);
     vec3 g = normalize(vRadial);
     vec3 t = normalize(vTangent);
     vec3 color = grating(uKey, V, g, t) * 1.5;
     color += grating(uVirtualA, V, g, t) * .85;
-    color += grating(uVirtualB, V, g, t) * .65;
+    if (uLowQuality < .5) color += grating(uVirtualB, V, g, t) * .65;
     float mask = smoothstep(.455, .47, vRadius) * (1. - smoothstep(1.158, 1.172, vRadius));
     if (uLabelFace > .5) {
       vec3 ink = labelSample(uLabel, vDiscUv).rgb;
       mask *= uSilver * smoothstep(.08, .85, dot(ink, vec3(.2126, .7152, .0722)));
     }
     gl_FragColor = vec4(color * uStrength * mask, mask);
+    // In a direct render these chunks perform the output transform here.
+    // In the HDR composer they stay linear until OutputPass runs once.
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
   }
 `;
 
@@ -247,10 +269,13 @@ const postShader = {
       vec3 halo = texture2D(tDiffuse, vUv + radial * 4.).rgb + texture2D(tDiffuse, vUv - radial * 4.).rgb;
       color += max(halo - 2. * base.rgb, vec3(0.)) * uHalation * .09;
       color += (hash(vUv * uResolution + fract(uTime) * 53.) - .5) * uGrain * base.a;
-      // Bloom passes use opaque intermediate buffers. Restore the original
-      // coverage, adding alpha only where an actual highlight halo exists.
-      float alpha = clamp(base.a + max(glow.r, max(glow.g, glow.b)) * .45, 0., 1.);
-      gl_FragColor = vec4(max(color, vec3(0.)) / max(alpha, .001), alpha);
+      // Never divide HDR radiance by coverage: near-zero alpha magnifies it
+      // into an overexposed canvas-sized veil on some mobile compositors.
+      // The saved scene owns coverage; bloom can add only a faint local halo.
+      float peak = max(glow.r, max(glow.g, glow.b));
+      float haloAlpha = smoothstep(.02, .25, peak) * min(.3, peak * .12);
+      float alpha = clamp(max(base.a, haloAlpha), 0., 1.);
+      gl_FragColor = alpha < .001 ? vec4(0.) : vec4(max(color, vec3(0.)), alpha);
     }
   `
 };
@@ -259,7 +284,16 @@ export async function createDisc({
   canvas, config = {}, reducedMotion = false,
   onToggle = () => {}, onVolume = () => {}, onSplat = () => {}, onNotice = () => {}
 }) {
+  let lowQuality = Boolean(config.rendering?.lowQuality);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, premultipliedAlpha: false, powerPreference: 'high-performance' });
+  // Even direct rendering uses the half-float PMREM environment. If those
+  // targets cannot render, fail before allocating PMREM and use the 2D disc.
+  const supportsHDR = renderer.extensions.has('EXT_color_buffer_float') ||
+    renderer.extensions.has('EXT_color_buffer_half_float');
+  if (!supportsHDR) {
+    renderer.dispose();
+    throw new Error('Les textures de réflexion HDR ne sont pas prises en charge ; utilisation du disque 2D.');
+  }
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NeutralToneMapping;
@@ -324,7 +358,8 @@ export async function createDisc({
       labelTexture.image.width / Math.max(labelTexture.image.width, labelTexture.image.height),
       labelTexture.image.height / Math.max(labelTexture.image.width, labelTexture.image.height)
     ) },
-    uLabelRotation: { value: 0 }, uLabelBlur: { value: 0 }, uSilver: { value: 1 }
+    uLabelRotation: { value: 0 }, uLabelBlur: { value: 0 }, uSilver: { value: 1 },
+    uLowQuality: { value: lowQuality ? 1 : 0 }
   };
   const labelMaterial = new THREE.MeshPhysicalMaterial({
     map: labelTexture, metalness: .95, roughness: .16,
@@ -348,7 +383,7 @@ export async function createDisc({
       float metalnessFactor = uSilver * mix(.98, .1, printedInk);
     `);
   };
-  labelMaterial.customProgramCacheKey = () => 'grind-calibrated-label-v2';
+  labelMaterial.customProgramCacheKey = () => 'grind-calibrated-label-v3';
   const labelFace = new THREE.Mesh(annulus(.36, 1.18), labelMaterial);
   labelFace.rotation.y = Math.PI;
   labelFace.position.z = -.013;
@@ -358,15 +393,19 @@ export async function createDisc({
     uKey: { value: keyLight.position },
     uVirtualA: { value: new THREE.Vector3(3.6, -2.2, 3.8) },
     uVirtualB: { value: new THREE.Vector3(-3.5, 1.4, -3.2) },
-    uSigma: { value: .15 }, uStrength: { value: 1.4 },
+    uSigma: { value: config.fx?.sigma ?? .15 },
+    uStrength: { value: (config.fx?.diffraction ?? 1.4) * (lowQuality ? .72 : 1) },
     uLabelFace: { value: 0 }, uLabel: { value: labelTexture }, ...labelUniforms
   };
   const diffractionMaterial = new THREE.ShaderMaterial({
     uniforms: diffractionUniforms,
     vertexShader: diffractionVertex, fragmentShader: diffractionFragment,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    transparent: true, depthWrite: false, blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+    // Diffraction adds light, never coverage: preserve the mirror's alpha.
+    blendEquationAlpha: THREE.AddEquation, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-    toneMapped: false
+    toneMapped: true
   });
   const diffractionFront = new THREE.Mesh(annulus(.46, 1.17), diffractionMaterial);
   diffractionFront.position.z = .014;
@@ -379,7 +418,7 @@ export async function createDisc({
   spin.add(diffractionBack);
 
   const plastic = new THREE.MeshPhysicalMaterial({
-    color: 0xdce9ed, metalness: 0, roughness: .12, transmission: 1,
+    color: 0xdce9ed, metalness: 0, roughness: .12, transmission: lowQuality ? 0 : 1,
     ior: 1.58, thickness: .024, transparent: true, opacity: .76,
     envMapIntensity: 1.2, iridescence: .18, iridescenceThicknessRange: [120, 220],
     side: THREE.DoubleSide, depthWrite: false
@@ -413,24 +452,34 @@ export async function createDisc({
   matrixBack.position.z = -.015;
   spin.add(matrixBack);
 
-  // A linear HDR pipeline, with the base coverage saved before bloom so the
-  // skyline behind the transparent WebGL canvas remains visible.
-  const composer = new EffectComposer(renderer);
-  const renderPass = new RenderPass(scene, camera);
-  const savePass = new SavePass();
-  const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), .42, .45, 1.75);
-  // Studio softboxes are extremely bright in the PMREM. Limit only the
-  // radiance sent into bloom; keep the original mirror's HDR reflections.
-  bloomPass.materialHighPassFilter.fragmentShader = bloomPass.materialHighPassFilter.fragmentShader.replace(
-    'gl_FragColor = mix( outputColor, texel, alpha );',
-    'texel.rgb *= min(1., 3. / max(.001, max(texel.r, max(texel.g, texel.b)))); gl_FragColor = mix( outputColor, texel, alpha );'
-  );
-  const postPass = new ShaderPass(postShader);
-  postPass.uniforms.tBase.value = savePass.renderTarget.texture;
-  const outputPass = new OutputPass();
-  [renderPass, savePass, bloomPass, postPass, outputPass].forEach(pass => composer.addPass(pass));
+  // Allocate HDR post-processing only for desktop quality. Mobile never
+  // creates or renders these full-canvas targets, including the first frame.
+  let composer = null, bloomPass = null, postPass = null;
+  function createPostProcessing() {
+    if (composer) return;
+    composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    renderPass.clearAlpha = 0;
+    const savePass = new SavePass();
+    bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), .42, .45, 1.75);
+    // Clamp only the softbox energy fed into bloom, preserving mirror detail.
+    bloomPass.materialHighPassFilter.fragmentShader = bloomPass.materialHighPassFilter.fragmentShader.replace(
+      'gl_FragColor = mix( outputColor, texel, alpha );',
+      'texel.rgb *= min(1., 3. / max(.001, max(texel.r, max(texel.g, texel.b)))); gl_FragColor = mix( outputColor, texel, alpha );'
+    );
+    postPass = new ShaderPass(postShader);
+    postPass.uniforms.tBase.value = savePass.renderTarget.texture;
+    [renderPass, savePass, bloomPass, postPass, new OutputPass()].forEach(pass => composer.addPass(pass));
+  }
 
-  let width = 1, height = 1, lowQuality = false, disposed = false;
+  function disposePostProcessing() {
+    if (!composer) return;
+    composer.passes.forEach(pass => pass.dispose?.());
+    composer.dispose();
+    composer = null; bloomPass = null; postPass = null;
+  }
+
+  let width = 1, height = 1, disposed = false;
   let speed = 0, speedVelocity = 0, spinAngle = 0;
   let precession = config.disc?.initialFace === 'label' ? Math.PI : 0;
   let flipAngle = 0, flipTarget = 0, flipVelocity = 0, flash = 0;
@@ -461,14 +510,16 @@ export async function createDisc({
     const dpr = Math.min(window.devicePixelRatio || 1, config.rendering?.dpr || 2, lowQuality ? 1.25 : 2);
     renderer.setPixelRatio(dpr);
     renderer.setSize(width, height, false);
-    composer.setPixelRatio(dpr);
-    composer.setSize(width, height);
+    if (composer) {
+      composer.setPixelRatio(dpr);
+      composer.setSize(width, height);
+      postPass.uniforms.uResolution.value.set(width * dpr, height * dpr);
+    }
     camera.aspect = width / height;
     // Roughly 210 px radius in a 650 × 500 px stage, with safe mobile margins.
     const radiusPx = Math.min(height * .425, width * .405);
     camera.position.z = RADIUS * height / (2 * Math.max(1, radiusPx) * Math.tan(THREE.MathUtils.degToRad(camera.fov * .5)));
     camera.updateProjectionMatrix();
-    postPass.uniforms.uResolution.value.set(width * dpr, height * dpr);
   }
 
   function getScreenDisc() {
@@ -575,6 +626,49 @@ export async function createDisc({
     onVolume(event.deltaY < 0 ? 5 : -5);
   }
 
+  function applySurfaceQuality() {
+    const silver = labelMode === 'silver';
+    labelUniforms.uLowQuality.value = lowQuality ? 1 : 0;
+    diffractionBack.visible = silver;
+    // Transmission triggers an additional scene render and an HDR texture.
+    // A lightly tinted transparent surface gives the hub its glass appearance
+    // on phones without paying for that extra full-screen capture.
+    const settings = [
+      [plastic, { transmission: lowQuality ? 0 : 1, opacity: lowQuality ? .24 : .76,
+        envMapIntensity: lowQuality ? .55 : 1.2, iridescence: lowQuality ? 0 : .18 }],
+      [mirror, { clearcoat: lowQuality ? 0 : .26, iridescence: lowQuality ? 0 : .22 }],
+      [labelMaterial, { anisotropy: silver && !lowQuality ? .5 : 0,
+        iridescence: silver && !lowQuality ? .18 : 0,
+        clearcoat: lowQuality ? .18 : silver ? .6 : .32,
+        envMapIntensity: lowQuality ? .4 : .6 }]
+    ];
+    for (const [material, properties] of settings) {
+      let changed = false;
+      for (const [key, value] of Object.entries(properties)) {
+        if (material[key] !== value) { material[key] = value; changed = true; }
+      }
+      if (changed) material.needsUpdate = true;
+    }
+    const anisotropy = Math.min(lowQuality ? 2 : 8, renderer.capabilities.getMaxAnisotropy());
+    if (labelTexture.anisotropy !== anisotropy) {
+      labelTexture.anisotropy = anisotropy;
+      labelTexture.needsUpdate = true;
+    }
+    renderer.toneMappingExposure = lowQuality ? .78 : .88;
+  }
+
+  function renderFrame(dt) {
+    if (composer) {
+      composer.render(dt);
+    } else {
+      // No OutputPass, full-screen quad or alpha reconstruction in this path.
+      renderer.setRenderTarget(null);
+      renderer.setClearColor(0x000000, 0);
+      renderer.autoClear = true;
+      renderer.render(scene, camera);
+    }
+  }
+
   function applyConfig() {
     const label = config.label || {};
     labelUniforms.uLabelOffset.value.set(label.offsetX || 0, label.offsetY || 0);
@@ -632,24 +726,32 @@ export async function createDisc({
     camera.rotation.z = reducedMotion ? 0 : Math.sin(time * .5) * (features.mid || 0) * .004;
     flash = Math.max(0, flash - dt * 2);
     applyConfig();
-    diffractionUniforms.uStrength.value = (config.fx?.diffraction ?? 1.4) * (1 + level * .12 + flash * .32);
-    bloomPass.strength = (config.fx?.bloom ?? .42) * (1 + level * .24 + kick * .12);
-    postPass.uniforms.uHalation.value = lowQuality ? 0 : (config.fx?.halation ?? .18);
-    postPass.uniforms.uGrain.value = config.fx?.grain ?? .025;
-    postPass.uniforms.uTime.value = reducedMotion ? 0 : time;
-    composer.render(dt);
+    diffractionUniforms.uStrength.value = (config.fx?.diffraction ?? 1.4) * (lowQuality ? .72 : 1) * (1 + level * .12 + flash * .32);
+    if (composer) {
+      bloomPass.strength = (config.fx?.bloom ?? .42) * (1 + level * .24 + kick * .12);
+      postPass.uniforms.uHalation.value = config.fx?.halation ?? .18;
+      postPass.uniforms.uGrain.value = config.fx?.grain ?? .025;
+      postPass.uniforms.uTime.value = reducedMotion ? 0 : time;
+    }
+    renderFrame(dt);
   }
 
   function setLabelMode(mode) {
     labelMode = mode === 'white' ? 'white' : 'silver';
     if (config.label) config.label.mode = labelMode;
     labelUniforms.uSilver.value = labelMode === 'silver' ? 1 : 0;
+    applySurfaceQuality();
   }
 
   function flip() { flipTarget += Math.PI; flash = reducedMotion ? 0 : 1; }
   function setQuality(low) {
-    if (lowQuality === Boolean(low)) return;
-    lowQuality = Boolean(low); resize();
+    const nextLowQuality = Boolean(low) || !supportsHDR;
+    if (disposed || lowQuality === nextLowQuality) return;
+    lowQuality = nextLowQuality;
+    if (lowQuality) disposePostProcessing();
+    else createPostProcessing();
+    applySurfaceQuality();
+    resize();
   }
 
   canvas.addEventListener('pointerdown', onPointerDown);
@@ -659,12 +761,14 @@ export async function createDisc({
   canvas.addEventListener('wheel', onWheel, { passive: false });
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(canvas);
+  if (!lowQuality) createPostProcessing();
+  applySurfaceQuality();
   applyConfig();
   orientation.rotation.set(-.2, -.22 + precession, -.04);
   resize();
   // Compile eagerly so shader errors are reported during startup, before play.
-  renderer.compile(scene, camera);
-  composer.render(0);
+  await renderer.compileAsync(scene, camera);
+  renderFrame(0);
 
   function dispose() {
     if (disposed) return;
@@ -684,12 +788,19 @@ export async function createDisc({
     materials.forEach(material => material.dispose());
     [textures.anisotropy, textures.roughness, matrixTexture, labelTexture].forEach(texture => texture.dispose());
     environment.dispose();
-    composer.passes.forEach(pass => pass.dispose?.());
-    composer.dispose(); renderer.dispose();
+    disposePostProcessing();
+    renderer.dispose();
   }
 
   return {
     update, resize, hitTest, setLabelMode, flip, getScreenDisc, setQuality, dispose,
-    debug: { renderer, scene, camera, orientation, spin, bloomPass, postPass, diffractionUniforms, labelUniforms, keyLight, cyanLight, magentaLight, applyConfig }
+    debug: {
+      renderer, scene, camera, orientation, spin, diffractionUniforms, labelUniforms,
+      keyLight, cyanLight, magentaLight, applyConfig,
+      get bloomPass() { return bloomPass; },
+      get postPass() { return postPass; },
+      get lowQuality() { return lowQuality; },
+      get pipeline() { return composer ? 'hdr-composer' : 'transparent-direct'; }
+    }
   };
 }

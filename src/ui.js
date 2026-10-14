@@ -507,7 +507,7 @@ export class RadioUI {
       this._text(row.number, two(index + 1));
       this._text(row.title, title);
       this._text(row.artist, track.artist || (track.title === TITLE_PENDING ? 'Titre en cours de chargement…' : 'JET SET RADIO FUTURE'));
-      this._text(row.state, track.blocked ? 'BLOCKED' : current ? snapshot.state === 'playing' ? '▶' : '●' : '↗');
+      this._text(row.state, track.blocked ? 'BLOCKED' : current ? snapshot.state === 'playing' ? '▶' : '●' : '↗\uFE0E');
       row.button.classList.toggle('current', current);
       row.button.classList.toggle('blocked', Boolean(track.blocked));
       row.button.disabled = Boolean(track.blocked);

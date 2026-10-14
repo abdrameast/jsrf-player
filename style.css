@@ -19,3 +19,47 @@ dialog{border:3px solid var(--ink);box-shadow:10px 10px 0 var(--ink);background:
 @media(min-width:741px) and (max-height:780px){.topbar{height:70px}.stage{min-height:360px}.hero-copy{margin-top:27px}.eyebrow{margin-bottom:12px}h1{font-size:clamp(36px,4.4vw,61px);line-height:1.12}.hero-jp{margin-top:8px;margin-bottom:7px}.hero-description{margin:8px 0 17px;font-size:11px}.hand-tag{display:none}.deck-main{padding-top:13px;padding-bottom:5px}.timeline{padding-top:11px;padding-bottom:10px}.deck-footer{padding-top:8px;padding-bottom:8px}.holo-sticker{bottom:77px;width:85px;height:90px}.holo-sticker span{font-size:19px}}
 @media(max-width:740px){.stage{min-height:max(470px,calc(100svh - 310px))}.hand-tag{display:none}h1{font-size:clamp(30px,8.8vw,45px);line-height:1.06}h1 br{display:block}h1 span:before{content:none}.disc-wrap{top:200px}.queue-header h2 br{display:block}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}.is-playing .fallback-disc{animation:none!important}#track-slam.active,#beat-word.pop,#interlude.active{display:none}.parallax{transform:none!important}.disc-invitation>span,.mixtape-icon{filter:none}}
+
+/* Safari gives unstyled buttons a system-blue foreground. Own their appearance
+   explicitly so SVG currentColor and labels keep the same ink as the deck. */
+button{-webkit-appearance:none;appearance:none;color:inherit}
+input[type=range]{color:var(--ink)}
+.timeline input,.timeline input::-webkit-slider-thumb{-webkit-appearance:none}
+.timeline input{min-width:0}
+.volume-control input{-webkit-appearance:none;appearance:none;height:22px;background:transparent;border:0;border-radius:0}
+.volume-control input::-webkit-slider-runnable-track{height:3px;background:#aaa59c;border-radius:0}
+.volume-control input::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:9px;height:13px;margin-top:-5px;background:var(--ink);border:0;border-radius:0}
+.volume-control input::-moz-range-track{height:3px;background:#aaa59c;border:0;border-radius:0}
+.volume-control input::-moz-range-thumb{width:9px;height:13px;background:var(--ink);border:0;border-radius:0}
+.direction-arrow{display:block;width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:square;stroke-linejoin:miter}
+.hero-jp>span{display:grid;place-items:center}
+.hero-jp .direction-arrow{width:21px;height:21px}
+.track-row-status{font-variant-emoji:text}
+#track-rows{overscroll-behavior:contain}
+
+/* Quality changes affect CSS as well as WebGL. The static dot pattern and fixed
+   hologram preserve the artwork without repainting screen-size filtered layers. */
+:root[data-quality=low] .stage:after,:root[data-quality=low] #intro:before{display:none}
+:root[data-quality=low] .disc-invitation>span,:root[data-quality=low] .mixtape-icon,:root[data-quality=low] .disc-invitation svg{filter:none}
+:root[data-quality=low] .halftone{background-image:radial-gradient(#0b0b14 1px,transparent 1.3px);mask-image:none;-webkit-mask-image:none;opacity:.12}
+:root[data-quality=low] .holo-sticker{background:conic-gradient(from 30deg at 50% 50%,#ceff9a,#8ce1f3,#d6aff6,#f9eda8,#a9f7cb,#ceff9a)}
+:root[data-quality=low] .is-playing .air-led{box-shadow:0 0 5px var(--accent)}
+:root[data-quality=low] .parallax{transform:none!important}
+:root[data-quality=low] .disc-wrap{animation:none}
+:root[data-quality=low] #queue-backdrop,:root[data-quality=low] dialog::backdrop{-webkit-backdrop-filter:none;backdrop-filter:none;background:#111119e8}
+:root[data-quality=low] dialog{transform:none}
+
+/* Touch devices receive the light treatment even before module initialization,
+   including browsers where WebGL startup or a remote script is delayed. */
+@media(hover:none) and (pointer:coarse){
+  .stage:after,#intro:before{display:none}
+  .disc-invitation>span,.mixtape-icon,.disc-invitation svg{filter:none}
+  .halftone{background-image:radial-gradient(#0b0b14 1px,transparent 1.3px);mask-image:none;-webkit-mask-image:none;opacity:.12}
+  .holo-sticker{background:conic-gradient(from 30deg at 50% 50%,#ceff9a,#8ce1f3,#d6aff6,#f9eda8,#a9f7cb,#ceff9a)}
+  .is-playing .air-led{box-shadow:0 0 5px var(--accent)}
+  .parallax{transform:none!important}
+  .disc-wrap{animation:none}
+  #queue-backdrop,dialog::backdrop{-webkit-backdrop-filter:none;backdrop-filter:none;background:#111119e8}
+  dialog{transform:none}
+}
+@media(max-width:740px){.direction-arrow{width:20px;height:20px}.hero-jp .direction-arrow{width:15px;height:15px}}

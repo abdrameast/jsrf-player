@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GRIND FM — isolated WebGL regression check</title>
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}</script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 16px; color: #f3f0e6; background: #1d2530; font: 14px/1.5 system-ui, sans-serif; }
+    h1 { margin: 0 0 8px; font-size: 19px; }
+    p { max-width: 680px; margin: 8px 0; }
+    .stage { width: min(100%, 640px); background: repeating-conic-gradient(#293746 0 25%, #536473 0 50%) 0 0 / 40px 40px; }
+    canvas { display: block; width: 100%; height: 440px; background: transparent; touch-action: none; }
+    .controls { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; max-width: 640px; }
+    button { border: 1px solid #84949e; border-radius: 4px; padding: 9px 12px; color: #f3f0e6; background: #354653; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: wait; }
+    #checks { background: #638700; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 800px; font-size: 12px; }
+    #status { font-weight: 700; color: #c4f366; }
+  </style>
+</head>
+<body>
+  <h1>Transparent canvas / mobile rendering</h1>
+  <p>Isolated disc only: no YouTube, microphone or audio. The checkerboard must remain visible around the disc. GPU readback runs periodically, so this is a correctness check rather than an FPS benchmark.</p>
+  <div class="stage"><canvas id="disc" role="button" tabindex="0" aria-label="Toggle simulated playback"></canvas></div>
+  <div class="controls">
+    <button id="low">Low quality</button><button id="high">High quality</button>
+    <button id="play">Simulate playback</button><button id="flip">Flip disc</button>
+    <button id="white">White label</button><button id="silver">Silver label</button>
+    <button id="checks">Run all render checks</button>
+  </div>
+  <p id="status">Initializing low quality…</p>
+  <pre id="report"></pre>
+  <pre id="results"></pre>
+  <script>
+    window.renderErrors = [];
+    const reportError = console.error.bind(console);
+    console.error = (...args) => {
+      window.renderErrors.push(args.map(String).join(' '));
+      reportError(...args);
+    };
+    addEventListener('error', event => window.renderErrors.push(event.message));
+    addEventListener('unhandledrejection', event => window.renderErrors.push(String(event.reason)));
+  </script>
+  <script type="module">
+    import { createDisc } from '../src/disc.js';
+
+    const canvas = document.querySelector('#disc');
+    const status = document.querySelector('#status');
+    const report = document.querySelector('#report');
+    const results = document.querySelector('#results');
+    const config = {
+      label: { offsetX: -.00118, offsetY: .00305, scale: 1.03, rotation: 0, mode: 'white' },
+      disc: { idleSpeed: .035, playSpeed: 2, precessionSpeed: .11, initialFace: 'label' },
+      fx: { bloom: .32, diffraction: 1.3, sigma: .15, halation: .13, grain: .018 },
+      lights: { key: 5, rim: 3 },
+      rendering: { lowQuality: true, dpr: 2, toneMapping: 'Neutral' }
+    };
+    let playing = false, previous = performance.now(), frameCount = 0, handle;
+    let stepIndex = -1, stepStarted = 0, stageSamples = [], completed = [];
+    const scenario = [
+      { name: 'LOW / paused white label', low: true, playing: false, mode: 'white', flip: false },
+      { name: 'LOW / playing + flip', low: true, playing: true, mode: 'white', flip: true },
+      { name: 'LOW / playing silver + flip', low: true, playing: true, mode: 'silver', flip: true },
+      { name: 'HIGH / paused white label', low: false, playing: false, mode: 'white', flip: false },
+      { name: 'HIGH / playing + flip', low: false, playing: true, mode: 'white', flip: true },
+      { name: 'HIGH / playing silver + flip', low: false, playing: true, mode: 'silver', flip: true },
+      { name: 'LOW / after HDR targets disposed', low: true, playing: false, mode: 'white', flip: false }
+    ];
+
+    try {
+      const disc = await createDisc({ canvas, config, onToggle: () => { playing = !playing; } });
+      const renderer = disc.debug.renderer;
+      const gl = renderer.getContext();
+      // Count all scene/post-process draws, including the transmission capture.
+      renderer.info.autoReset = false;
+      const pixels = new Uint8Array(4);
+
+      function sampleAlpha() {
+        const rect = canvas.getBoundingClientRect();
+        const screen = disc.getScreenDisc();
+        const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+        const corners = [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]];
+        const exterior = [];
+        // 15% beyond the projected disc radius also clears its perspective bulge.
+        for (let i = 0; i < 8; i++) {
+          const angle = i / 8 * Math.PI * 2;
+          const x = (screen.x - rect.left + Math.cos(angle) * screen.radius * 1.15) / rect.width * w;
+          const y = h - (screen.y - rect.top + Math.sin(angle) * screen.radius * 1.15) / rect.height * h;
+          if (x >= 0 && x < w && y >= 0 && y < h) exterior.push([Math.floor(x), Math.floor(y)]);
+        }
+        const read = point => {
+          gl.readPixels(point[0], point[1], 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+          return [...pixels];
+        };
+        const cornerRGBA = corners.map(read), exteriorRGBA = exterior.map(read);
+        const cornerMaxAlpha = Math.max(...cornerRGBA.map(p => p[3]));
+        const exteriorMaxAlpha = Math.max(0, ...exteriorRGBA.map(p => p[3]));
+        let transmissionMeshes = 0;
+        disc.debug.scene.traverse(object => { if (object.material?.transmission > 0) transmissionMeshes++; });
+        const low = disc.debug.lowQuality;
+        const passed = renderer.info.render.calls > 0 && cornerMaxAlpha === 0 && exteriorMaxAlpha <= (low ? 0 : 77) &&
+          (!low || (renderer.getPixelRatio() <= 1.25 && transmissionMeshes === 0 && disc.debug.bloomPass === null)) &&
+          window.renderErrors.length === 0;
+        return {
+          passed, pipeline: disc.debug.pipeline, playing, label: config.label.mode,
+          dpr: renderer.getPixelRatio(), drawingBuffer: [w, h],
+          drawCalls: renderer.info.render.calls, textures: renderer.info.memory.textures,
+          transmissionMeshes, cornerMaxAlpha, exteriorMaxAlpha,
+          cornerRGBA, exteriorRGBA, errors: [...window.renderErrors]
+        };
+      }
+
+      function enterStep(index, now) {
+        const step = scenario[index];
+        stepIndex = index; stepStarted = now; stageSamples = [];
+        disc.setQuality(step.low); disc.setLabelMode(step.mode); playing = step.playing;
+        if (step.flip) disc.flip();
+        status.textContent = `Checking ${index + 1}/${scenario.length}: ${step.name}`;
+      }
+
+      function nextFrame(now) {
+        const dt = Math.min(.05, (now - previous) / 1000); previous = now;
+        const time = now / 1000;
+        const beat = playing ? Math.pow(Math.max(0, Math.sin(time * Math.PI * 4)), 8) : 0;
+        renderer.info.reset();
+        disc.update(dt, time, { level: playing ? .3 : 0, bass: beat * .5, kick: beat, mid: .1 }, { playing });
+        if (++frameCount % 24 === 0) {
+          const sample = sampleAlpha();
+          report.textContent = JSON.stringify(sample, null, 2);
+          if (stepIndex >= 0) stageSamples.push(sample);
+          else status.textContent = `${sample.passed ? 'PASS' : 'FAIL'} — ${sample.pipeline}`;
+        }
+        if (stepIndex >= 0 && now - stepStarted > 2200 && stageSamples.length) {
+          completed.push({
+            name: scenario[stepIndex].name, passed: stageSamples.every(sample => sample.passed),
+            samples: stageSamples.length,
+            maxCornerAlpha: Math.max(...stageSamples.map(sample => sample.cornerMaxAlpha)),
+            maxExteriorAlpha: Math.max(...stageSamples.map(sample => sample.exteriorMaxAlpha)),
+            lastDrawCalls: stageSamples.at(-1).drawCalls,
+            lastTextures: stageSamples.at(-1).textures
+          });
+          results.textContent = JSON.stringify(completed, null, 2);
+          if (stepIndex + 1 < scenario.length) enterStep(stepIndex + 1, now);
+          else {
+            stepIndex = -1;
+            document.querySelector('#checks').disabled = false;
+            status.textContent = `${completed.every(step => step.passed) ? 'PASS' : 'FAIL'} — all ${scenario.length} scenarios finished`;
+          }
+        }
+        handle = requestAnimationFrame(nextFrame);
+      }
+
+      document.querySelector('#low').onclick = () => disc.setQuality(true);
+      document.querySelector('#high').onclick = () => disc.setQuality(false);
+      document.querySelector('#play').onclick = () => { playing = !playing; };
+      document.querySelector('#flip').onclick = () => disc.flip();
+      document.querySelector('#white').onclick = () => disc.setLabelMode('white');
+      document.querySelector('#silver').onclick = () => disc.setLabelMode('silver');
+      document.querySelector('#checks').onclick = event => {
+        event.currentTarget.disabled = true; completed = []; results.textContent = '';
+        enterStep(0, performance.now());
+      };
+      // Read-only status hook, useful when inspecting the page through devtools.
+      window.renderTest = { disc, get completed() { return completed; } };
+      handle = requestAnimationFrame(nextFrame);
+      addEventListener('pagehide', () => { cancelAnimationFrame(handle); disc.dispose(); }, { once: true });
+    } catch (error) {
+      status.textContent = 'FAIL — initialization';
+      report.textContent = error.stack || String(error);
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

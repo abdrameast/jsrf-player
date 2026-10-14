@@ -50,6 +50,7 @@ style.css              identité graphique, responsive, accessibilité
 vercel.json            déploiement statique et en-tête Referer
 .vercelignore          fichiers exclus du déploiement Vercel
 src/main.js            CONFIG et orchestration
+src/quality.js         budget mobile et adaptation stable des effets
 src/disc.js            géométrie, matériaux, GLSL, lumière, arcball
 src/player.js          API YouTube, métadonnées, états, navigation
 src/audio.js           AudioFeatures, AUTO, FFT LIVE/MIC, SFX
@@ -61,6 +62,8 @@ assets/favicon.svg     icône originale
 assets/make-label.py   source optionnelle du label
 ```
 
-Three.js r180 est épinglé via jsDelivr ; lil-gui ne charge qu’à l’ouverture du debug. Le rendu s’arrête lorsque l’onglet est caché, le son continue. Le DPR est limité à 2 et les effets diminuent sous 45 fps. Sans WebGL, le disque passe en 2D. Le réglage système de réduction du mouvement est pris en compte.
+Three.js r180 est épinglé via jsDelivr ; lil-gui ne charge qu’à l’ouverture du debug. Le rendu s’arrête lorsque l’onglet est caché, le son continue. Sur écran compact (≤ 740 px), pointeur tactile ou préférence de mouvement réduit, le rendu léger est actif dès la première image : DPR limité à 1,25, fond transparent direct, reflets et diffraction conservés, sans passes de bloom ni capture de transmission. Les particules et filtres CSS sont aussi allégés. Le bureau utilise un DPR maximal de 2 et passe en mode léger après deux fenêtres de trois secondes sous 45 fps. Ce choix reste stable pour la session, pour éviter les alternances de qualité qui provoquent des à-coups. Sans WebGL, le disque passe en 2D.
+
+Les tests de cette adaptation se lancent avec `node --test tests/quality.test.mjs`. Le banc `tests/render.html`, ouvert sur le serveur local, vérifie l’alpha et les changements de pipeline sans charger YouTube. Les tests sont exclus du déploiement Vercel.
 
 Les restrictions YouTube (pays, compte, publicité, intégration désactivée) restent celles des vidéos de la playlist. La capture LIVE/MIC et la compatibilité Safari/iOS nécessitent une vérification sur les appareils concernés ; un test Chromium ne certifie pas ces plateformes.

@@ -18,10 +18,16 @@ import { RadioPlayer } from './player.js';
 import { AudioEngine } from './audio.js';
 import { RadioFX } from './fx.js';
 import { RadioUI } from './ui.js';
+import { RenderBudget } from './quality.js';
 
 const stage = document.querySelector('#stage');
 const canvas = document.querySelector('#disc-canvas');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const compactViewport = matchMedia('(max-width: 740px)');
+const renderBudget = new RenderBudget({ compact: compactViewport.matches,
+  coarsePointer: matchMedia('(pointer: coarse)').matches, reducedMotion });
+CONFIG.rendering.lowQuality = renderBudget.low;
+document.documentElement.dataset.quality = renderBudget.low ? 'low' : 'high';
 Object.entries(CONFIG.palette).forEach(([name, value]) => document.documentElement.style.setProperty(`--${name}`, value));
 const player = new RadioPlayer(CONFIG);
 const audio = new AudioEngine(CONFIG);
@@ -62,7 +68,12 @@ const rendererReady = import('./disc.js').then(({ createDisc }) => createDisc({
   onVolume: delta => { CONFIG.audio.volume = Math.min(100, Math.max(0, player.snapshot().volume + delta)); player.setVolume(CONFIG.audio.volume); },
   onSplat: (x, y) => { fx.splat(x, y); audio.sfx('spray'); },
   onNotice: message => ui.toast(typeof message === 'string' ? message : message.message, 'warning'),
-})).then(result => { disc = result; }).catch(error => {
+})).then(result => {
+  disc = result;
+  disc.setQuality(renderBudget.low);
+  if (disc.debug.lowQuality && renderBudget.useLowQuality()) applyQuality();
+  renderBudget.resetWindow();
+}).catch(error => {
   fallback = true;
   document.querySelector('#disc-fallback').hidden = false;
   ui.toast('WebGL indisponible : le disque 2D reste utilisable.', 'warning');
@@ -88,6 +99,7 @@ stage.addEventListener('pointerdown', event => {
 const planes = [...document.querySelectorAll('.parallax')];
 let pointerX = 0, pointerY = 0, smoothX = 0, smoothY = 0;
 stage.addEventListener('pointermove', event => {
+  if (renderBudget.low) return;
   const r = stage.getBoundingClientRect();
   pointerX = (event.clientX - r.left) / r.width - 0.5;
   pointerY = (event.clientY - r.top) / r.height - 0.5;
@@ -97,34 +109,43 @@ stage.addEventListener('pointermove', event => {
 stage.addEventListener('pointerleave', () => { pointerX = pointerY = 0; });
 new ResizeObserver(() => { disc?.resize(); fx.resize(); }).observe(stage);
 
-let previous = performance.now(), qualityTime = 0, qualityFrames = 0, lowQuality = false, frameHandle;
+function applyQuality() {
+  CONFIG.rendering.lowQuality = renderBudget.low;
+  document.documentElement.dataset.quality = renderBudget.low ? 'low' : 'high';
+  disc?.setQuality(renderBudget.low);
+  fx.setQuality(renderBudget.low);
+  planes.forEach(plane => { plane.style.transform = ''; });
+}
+compactViewport.addEventListener('change', event => {
+  if (event.matches && renderBudget.useLowQuality()) applyQuality();
+});
+
+let previous = performance.now(), frameHandle;
 function frame(now) {
   const wallDt = (now - previous) / 1000;
   const dt = Math.min(wallDt, 0.05); previous = now;
   const snapshot = player.snapshot();
   const features = audio.update(dt, snapshot);
   disc?.update(dt, now / 1000, features, snapshot);
-  const r = canvas.getBoundingClientRect();
-  fx.update(dt, now / 1000, features, snapshot, disc?.getScreenDisc() || { x: r.left + r.width / 2, y: r.top + r.height / 2, radius: Math.min(r.width, r.height) * 0.34 });
+  let screenDisc = disc?.getScreenDisc();
+  if (!screenDisc) {
+    const r = canvas.getBoundingClientRect();
+    screenDisc = { x: r.left + r.width / 2, y: r.top + r.height / 2, radius: Math.min(r.width, r.height) * 0.34 };
+  }
+  fx.update(dt, now / 1000, features, snapshot, screenDisc);
   ui.update(snapshot, features);
-  if (!reducedMotion) {
+  if (!reducedMotion && !renderBudget.low) {
     const smoothing = 1 - Math.exp(-dt * 4);
     smoothX += (pointerX - smoothX) * smoothing; smoothY += (pointerY - smoothY) * smoothing;
     planes.forEach(plane => { const depth = +plane.dataset.depth; plane.style.transform = `translate(${smoothX * depth}px,${smoothY * depth}px)`; });
   }
-  qualityTime += wallDt; qualityFrames++;
-  if (qualityTime > 3) {
-    const fps = qualityFrames / qualityTime;
-    const nextLow = lowQuality ? fps < 56 : fps < 45;
-    if (nextLow !== lowQuality) { lowQuality = nextLow; disc?.setQuality(lowQuality); fx.setQuality(lowQuality); }
-    qualityTime = qualityFrames = 0;
-  }
+  if (disc && renderBudget.sample(wallDt)) applyQuality();
   frameHandle = requestAnimationFrame(frame);
 }
 frameHandle = requestAnimationFrame(frame);
 document.addEventListener('visibilitychange', () => {
   cancelAnimationFrame(frameHandle);
-  if (!document.hidden) { previous = performance.now(); qualityTime = qualityFrames = 0; frameHandle = requestAnimationFrame(frame); }
+  if (!document.hidden) { previous = performance.now(); renderBudget.resetWindow(); frameHandle = requestAnimationFrame(frame); }
 });
 window.addEventListener('pagehide', event => {
   if (event.persisted) return;
@@ -158,4 +179,5 @@ async function toggleDebug() {
 }
 
 // Read-only inspection hook, useful for validating sources and the common feature bus.
-window.GRIND = { config: CONFIG, player, audio, get disc() { return disc; }, get fallback() { return fallback; } };
+window.GRIND = { config: CONFIG, player, audio, get disc() { return disc; }, get fallback() { return fallback; },
+  get rendering() { return { quality: renderBudget.low ? 'low' : 'high', fps: renderBudget.fps }; } };

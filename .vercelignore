@@ -4,6 +4,7 @@ SOURCES_COMPLETS.md
 README.md
 VERIFICATION.md
 docs/
+tests/
 
 # Ancien label et script de génération, inutilisés par le lecteur actuel.
 assets/label.jpg

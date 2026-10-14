@@ -1,5 +1,21 @@
 # Vérification — 14 octobre 2026
 
+## Correctif reflets et fluidité mobile
+
+Suite aux captures iPhone montrant un rectangle blanc, le rendu mobile utilise un canvas transparent direct sans composer, bloom ni capture de transmission. Le post-process bureau ne divise plus les couleurs HDR par l’alpha. Le mode léger démarre sur écran compact/tactile et reste stable après une dégradation automatique ; il ne réactive plus les effets lourds dès que le framerate remonte.
+
+Vérifications réalisées dans Chromium intégré :
+
+- `tests/render.html` : sept scénarios (qualité basse/haute, pause, lecture simulée, retournements, label argent, retour au rendu léger). Tous passent. Les quatre coins du canvas sont RGBA `(0,0,0,0)` ; alpha extérieur au disque nul en mode léger et au plus 3/255 en qualité haute pendant ces essais.
+- Mesure des appels de dessin WebGL, toutes passes comprises : 18–19 par image en mode léger contre 44–45 en qualité haute. Textures actives : 5 au démarrage léger, 20 en haute qualité, 6 après retour au mode léger (une texture de transmission reste gérée par Three.js). Ces nombres mesurent la charge, pas les FPS d’un iPhone.
+- Mode mobile 390 × 844 : pas de débordement horizontal, arrière-plan visible autour du disque, DPR 1,25. Lecture réelle de « The Concept of Love », puis piste suivante « Fly Like a Butterfly » vérifiées.
+- Compilation GLSL sans erreur ni avertissement après correction d’un avertissement ANGLE sur le retour de `labelSample`.
+- `node --test tests/quality.test.mjs` : 3 tests réussis (sélection mobile, dégradation stable, démarrage et reprise d’onglet). Syntaxe des modules et `git diff --check` validés.
+
+Les captures du correctif sont `docs/mobile-reflections-fix.jpg` et `docs/desktop-reflections-fix.jpg`. Safari/iOS physique n’est pas accessible ici : la disparition du défaut et la fluidité doivent encore être confirmées sur l’iPhone concerné.
+
+## Vérifications initiales
+
 Essais réalisés dans le navigateur Chromium intégré à Codex, via un serveur HTTP local. Dimensions vérifiées : 1440 × 900 et 390 × 844. Les captures actualisées avec le scan fourni se trouvent dans `docs/`, dont `label-scan.jpg`.
 
 | Critère du brief | Résultat observé |
@@ -16,6 +32,6 @@ Essais réalisés dans le navigateur Chromium intégré à Codex, via un serveur
 | Responsive | Document sans débordement horizontal ou vertical aux deux dimensions testées. Titre mobile corrigé après inspection. |
 | Console | Aucun message error/warn dans les dernières lectures de console. Syntaxe des six modules validée avec node --check. |
 | Autres navigateurs | Firefox, Safari, iOS et Android physiques non disponibles pour ces essais. Le viewport mobile est une vérification de mise en page Chromium, pas une certification mobile. |
-| Dégradation | Code de repli 2D, réduction de mouvement, suspension sur onglet caché et adaptation sous 45 fps présents. Absence de WebGL et performance 60 fps sur appareils réels non certifiées. |
+| Dégradation | Code de repli 2D, réduction de mouvement, suspension sur onglet caché et adaptation stable après deux fenêtres sous 45 fps présents. Absence de WebGL et performance 60 fps sur appareils réels non certifiées. |
 
 Les tests de simulation complètent les essais réels ; ils ne remplacent pas la vérification de capture, d’autoplay et de GPU sur chaque plateforme.
