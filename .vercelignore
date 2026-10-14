@@ -1,0 +1,15 @@
+# Livraison hors ligne et documentation ; les fichiers du lecteur restent inclus.
+*.zip
+SOURCES_COMPLETS.md
+README.md
+VERIFICATION.md
+docs/
+
+# Ancien label et script de génération, inutilisés par le lecteur actuel.
+assets/label.jpg
+assets/make-label.py
+
+# État local et outils de développement.
+.git/
+.vercel/
+node_modules/

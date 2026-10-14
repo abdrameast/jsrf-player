@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="theme-color" content="#17171d">
+  <meta name="description" content="GRIND//FM — une radio pirate interactive. Un disque, 35 pistes, toute la ville.">
+  <title>GRIND//FM — All city. All sound.</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Dela+Gothic+One&family=DotGothic16&family=Sedgwick+Ave+Display&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}</script>
+</head>
+<body>
+  <svg class="svg-defs" aria-hidden="true"><defs><filter id="line-boil"><feTurbulence id="boil" type="fractalNoise" baseFrequency=".025" numOctaves="1" seed="2" result="noise"/><feDisplacementMap in="SourceGraphic" in2="noise" scale=".65"/></filter></defs></svg>
+  <div id="youtube-shell" aria-label="Lecteur YouTube"><strong>TAP TO TUNE IN</strong><p>Touchez la vidéo pour autoriser la lecture.</p><div id="youtube-player"></div></div>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="station-logo" href="#" aria-label="GRIND FM, accueil"><span class="logo-symbol">↯</span><span>GRIND<span class="logo-slash">//</span>FM<small>UNLICENSED. UNFILTERED.</small></span></a>
+      <div class="station-location"><span class="crosshair">⊕</span> TOKYO-TO UNDERGROUND <span class="location-jp">東京・海賊ラジオ</span></div>
+      <div class="air-status"><span class="air-led"></span><span id="air-label">STAND BY</span><span class="frequency">98.6 <small>MHz</small></span></div>
+    </header>
+
+    <main class="stage" id="stage">
+      <div class="sky-glow" aria-hidden="true"></div>
+      <div class="halftone" aria-hidden="true"></div>
+      <div class="sun" aria-hidden="true"></div>
+      <div class="city-back parallax" data-depth="8" aria-hidden="true"></div>
+      <svg class="city-front parallax" data-depth="16" viewBox="0 0 1600 520" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+        <defs><pattern id="windows" width="28" height="30" patternUnits="userSpaceOnUse"><path d="M5 5h7v12H5z" fill="#73716e" opacity=".26"/></pattern></defs>
+        <path fill="#292a35" stroke="#101116" stroke-width="5" d="M-20 520V290H66V245H94V290H166V190H216V158H235V190H286V350H335V267H407V320H480V205H510V166H524V205H590V300H643V350H720V284H780V154H840V120H858V154H910V260H970V310H1048V200H1110V130H1121V200H1180V289H1210V179H1300V249H1360V100H1430V70H1443V100H1480V280H1550V230H1630V520Z"/>
+        <path fill="url(#windows)" d="M166 200h120v320H166zM480 215h110v305H480zM780 167h130v353H780zM1048 210h132v310h-132zM1360 112h120v408h-120z"/>
+        <path d="M0 169Q620 420 1600 145M0 182Q640 438 1600 160M60 0v370m-22-260h95m-90 32h80m1255-88v400m-53-349h107m-93 28h87" fill="none" stroke="#111219" stroke-width="5"/>
+        <g transform="translate(1265 230) rotate(-5)"><path d="M0 0h79v151H0z" fill="#21212c" stroke="#0e0e10" stroke-width="6"/><text x="19" y="43" fill="#b0cb66" font-size="30" font-family="sans-serif">ラ<tspan x="19" dy="39">ジ</tspan><tspan x="19" dy="39">オ</tspan></text></g>
+        <path d="M0 444L255 413l290 34 286-18 299 8 300-37 180 19v101H0z" fill="#36353a" stroke="#111219" stroke-width="5"/>
+        <g fill="none" stroke="#a6f000" opacity=".12" stroke-width="12" transform="translate(100 448) rotate(-6)"><path d="M0 48L25 0l19 43L67 5l15 47m19-2V5h38l-38 24h32m60 28L177 3l50 28-50 27m77-56l30 53 37-54"/></g>
+      </svg>
+      <div class="frequency-rail" aria-hidden="true"><span>FM / 98.6</span><i></i><span>STEREO</span></div>
+      <section class="hero-copy">
+        <p class="eyebrow"><span></span> THE AIRWAVES ARE OURS.</p>
+        <h1>ALL CITY.<br><span>ALL SOUND.</span></h1>
+        <div class="hero-jp" aria-hidden="true">音楽は止められない <span>↗</span></div>
+        <p class="hero-description">A pirate frequency. A restless city.<br>The soundtrack to your next escape.</p>
+        <div class="mixtape-label"><span class="mixtape-icon">↗</span><span>JET SET RADIO FUTURE<small>THE COMPLETE SOUNDTRACK · <b id="cut-count">35</b> CUTS</small></span></div>
+        <div class="hand-tag" aria-hidden="true">Keep the streets loud.<svg viewBox="0 0 210 36"><path d="M3 16q87 24 195-10m-18-3 22 2-14 17"/></svg></div>
+      </section>
+
+      <div class="disc-wrap" id="disc-wrap">
+        <canvas id="disc-canvas" role="button" tabindex="0" aria-label="Lire la playlist — cliquez sur le disque" aria-describedby="disc-instructions"></canvas>
+        <div id="disc-fallback" hidden><div class="fallback-disc"><img src="assets/label.png" alt="Face imprimée du CD, scan fourni"><span></span></div></div>
+        <span class="disc-coordinate coordinate-top">SIDE A / DIGITAL AUDIO</span>
+        <span class="disc-coordinate coordinate-bottom">33° 35′ N &nbsp; 139° 44′ E</span>
+        <span class="disc-cross cross-tl">+</span><span class="disc-cross cross-br">+</span>
+      </div>
+      <canvas id="fx-canvas" aria-hidden="true"></canvas>
+      <div class="disc-invitation" id="disc-invitation"><span>CLIQUE LE DISQUE !</span><svg viewBox="0 0 100 70" aria-hidden="true"><path d="M7 6q70-12 64 48m-20-15 19 20 20-22"/></svg></div>
+      <div class="holo-sticker" aria-hidden="true"><span>100%<br>FRESH</span><small>NO SKIPS. JUST HEAT.</small></div>
+      <div class="stage-bottom"><span id="disc-instructions">CLICK TO PLAY <i>／</i> DRAG TO SPIN</span><button id="help-button" class="text-button" aria-label="Afficher les raccourcis clavier">[ ? ] &nbsp; THE CONTROLS</button></div>
+      <div id="track-slam" aria-hidden="true"><small>NEW FREQUENCY</small><strong>TRACK 01</strong><span></span></div>
+      <div id="beat-word" aria-hidden="true">ドン!</div>
+      <div id="interlude" aria-hidden="true"><b>GRIND//FM</b><span>STAY ON THE FREQUENCY.</span></div>
+    </main>
+
+    <section class="player-deck" aria-label="Commandes du lecteur">
+      <div class="deck-ticker"><span>NOW ON AIR</span><i></i><span id="play-state">TUNING…</span><span class="ticker-right">UNDERGROUND SOUNDS / OVERGROUND ENERGY</span></div>
+      <div class="deck-main">
+        <div class="track-info"><div class="track-topline"><span id="track-number">TR 01 / 35</span><span class="explicit-badge">STEREO</span></div><h2 id="track-title" aria-live="polite">JET SET RADIO FUTURE</h2><p id="track-artist">THE COMPLETE SOUNDTRACK</p></div>
+        <div class="transport"><button id="previous" class="transport-small" title="Piste précédente (←)" aria-label="Piste précédente"><svg viewBox="0 0 24 24"><path d="M5 5v14M19 5L8 12l11 7Z"/></svg></button><button id="play" class="play-button" title="Lecture / pause (Espace)" aria-label="Lire"><svg class="play-icon" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg><svg class="pause-icon" viewBox="0 0 24 24"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg></button><button id="next" class="transport-small" title="Piste suivante (→)" aria-label="Piste suivante"><svg viewBox="0 0 24 24"><path d="M19 5v14M5 5l11 7L5 19Z"/></svg></button></div>
+        <div class="deck-tools"><div class="volume-control"><button id="mute" aria-label="Couper le son (M)" title="Muet (M)"><svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4ZM17 8q5 4 0 8M20 5q7 7 0 14"/></svg></button><input id="volume" type="range" min="0" max="100" value="70" aria-label="Volume"><span id="volume-value">70</span></div><div class="tool-buttons"><button id="sync" class="sync-button" title="Synchroniser le son (S)"><span>ϟ</span> SYNC <small id="audio-mode">AUTO</small></button><button id="queue-toggle" class="queue-button" aria-label="Afficher la liste des pistes" aria-expanded="false" aria-controls="tracklist"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/></svg><span>TRACKS</span></button><button id="fullscreen" class="fullscreen-button" title="Plein écran (F)" aria-label="Plein écran"><svg viewBox="0 0 24 24"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"/></svg></button></div></div>
+      </div>
+      <div class="timeline"><span id="current-time">00:00</span><input id="progress" type="range" min="0" max="1000" value="0" step="1" aria-label="Position dans le morceau"><span id="duration">00:00</span></div>
+      <div class="deck-footer"><span><i></i> INDEPENDENT SIGNAL. INFINITE ROTATION.</span><span id="mode-caption">AUTO VISUALS <b>·</b> TAP [T] TO SET THE TEMPO</span><button id="sfx-toggle" class="text-button" aria-pressed="true">SFX ON</button></div>
+    </section>
+  </div>
+
+  <aside id="tracklist" class="tracklist" aria-label="Liste des pistes" inert><div class="queue-header"><div><small>THE CRATE / 順番</small><h2>35 CUTS.<br>ZERO RULES.</h2></div><button id="queue-close" aria-label="Fermer la liste">×</button></div><p class="queue-description">JET SET RADIO FUTURE<br><span>The Complete Soundtrack · Original order</span></p><ol id="track-rows"></ol><p id="queue-status">Connexion à la fréquence YouTube…</p><footer>↻ &nbsp; ALL TRACKS. ON REPEAT.</footer></aside>
+  <div id="queue-backdrop" hidden></div>
+
+  <dialog id="sync-dialog"><button class="dialog-close" aria-label="Fermer">×</button><span class="dialog-kicker">GET ON THE SAME WAVELENGTH</span><h2>FEEL EVERY<br><em>FREQUENCY.</em></h2><p>Pour réagir vraiment à la musique, partagez le son de cet onglet ou activez le micro. Rien n’est enregistré ni envoyé : l’analyse reste dans votre navigateur.</p><div class="sync-options"><button id="sync-live"><b>ϟ LIVE SYNC</b><span>Chrome / Edge · Choisissez cet onglet et cochez « Partager l’audio ».</span></button><button id="sync-mic"><b>◎ MIC INPUT</b><span>Écoute vos haut-parleurs. Compatible avec les navigateurs mobiles.</span></button><button id="sync-auto"><b>↻ AUTO GROOVE</b><span>Animation rythmique simulée. Tapez T pour régler le tempo.</span></button></div><p class="dialog-footnote">YouTube ne donne pas directement accès à son signal audio.</p></dialog>
+  <dialog id="help-dialog"><button class="dialog-close" aria-label="Fermer">×</button><span class="dialog-kicker">KNOW YOUR DECK</span><h2>TAKE<br><em>CONTROL.</em></h2><dl><dt>SPACE</dt><dd>Lecture / pause</dd><dt>← →</dt><dd>Piste précédente / suivante</dd><dt>↑ ↓ / MOLETTE</dt><dd>Volume</dd><dt>M</dt><dd>Couper le son</dd><dt>L</dt><dd>Label papier / argent</dd><dt>T</dt><dd>Tap tempo</dd><dt>S</dt><dd>Synchronisation audio</dd><dt>F</dt><dd>Plein écran</dd><dt>D</dt><dd>Réglages du disque</dd><dt>GLISSER</dt><dd>Faire tourner le disque</dd></dl></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="intro" aria-hidden="true"><span>GRIND//FM</span><small>TUNING INTO THE UNDERGROUND</small><div class="intro-meter"></div></div>
+  <noscript><p class="noscript">Activez JavaScript pour écouter GRIND//FM.</p></noscript>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

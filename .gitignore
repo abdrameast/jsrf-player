@@ -1,0 +1,14 @@
+# Local tools, private configuration and generated delivery bundles.
+node_modules/
+.vercel/
+.env
+.env.*
+!.env.example
+*.log
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+Desktop.ini
+/GRIND-FM.zip
+/SOURCES_COMPLETS.md
